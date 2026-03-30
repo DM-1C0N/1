@@ -1,0 +1,49 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env / editor
+.venv/
+venv/
+env/
+.vscode/
+.idea/
+.ipynb_checkpoints/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Model weights / checkpoints
+*.pt
+*.pth
+*.bin
+*.ckpt
+*.safetensors
+
+# Large local resources
+/blip2-opt-2.7b/
+/transformers-4.33.2/
+/dataset/
+
+# Generated outputs
+/output/
+/sdxl_gen_images/
+
+# Experiment artifacts
+/experiments/
+/cross_image/
+/noise_init/
+
+# Cache
+.cache/
+.huggingface/
+wandb/
