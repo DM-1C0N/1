@@ -33,6 +33,7 @@ Thumbs.db
 /blip2-opt-2.7b/
 /transformers-4.33.2/
 /dataset/
+data/config.local.json
 
 # Generated outputs
 /output/
@@ -40,7 +41,6 @@ Thumbs.db
 
 # Experiment artifacts
 /experiments/
-/cross_image/
 /noise_init/
 
 # Cache

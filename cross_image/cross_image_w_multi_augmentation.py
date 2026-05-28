@@ -32,7 +32,16 @@ from utils.eval_tools import (
     plot_loss, postprocess_generation,record_format_summary, record_format_summary_affect
 )
 from PIL import Image
-from utils.eval_datasets import AugmentedCroPADataset
+
+def str2bool(value):
+    if isinstance(value, bool):
+        return value
+    value = value.lower()
+    if value in {"true", "1", "yes", "y"}:
+        return True
+    if value in {"false", "0", "no", "n"}:
+        return False
+    raise argparse.ArgumentTypeError("Boolean value expected.")
 
 def multi_augmentation(x: torch.Tensor, num_scale: int) -> torch.Tensor:
     """
@@ -500,11 +509,11 @@ if __name__=="__main__":
                         help="The number of prompts utilized during the optimization phase")
     parser.add_argument("--device", type=int, default=-1,
                         help="The device id of the GPU to use")
-    parser.add_argument("--iter_num", type=int, default=300,
+    parser.add_argument("--iter_num", "--iters", dest="iter_num", type=int, default=300,
                         help="The num of attack iterations")
     parser.add_argument("--model_name", type=str, default="instructblip", #before: instructblip
                         help="The num of attack iter")
-    parser.add_argument("--quick_eval", type=bool, default=False,
+    parser.add_argument("--quick_eval", type=str2bool, default=False,
                         help="set to false to generate the result given clean images")
     parser.add_argument("--fraction", type=float, default=0.05,
                         help="The fraction of the test dataset to use")
@@ -542,7 +551,7 @@ if __name__=="__main__":
 
     target_text = config_args.target
     iter_num = config_args.iter_num
-    method_dir = f"{config_args.method}_multi_aug_ns_{config_args.num_scale}"
+    method_dir = f"{config_args.method}_w_multi_aug_ns_{config_args.num_scale}"
     
     attack(
         config_args,
