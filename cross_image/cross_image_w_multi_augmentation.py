@@ -322,9 +322,11 @@ def attack(
                 qformer_input_ids = qformer_input_ids_list[text_idx]
                 qformer_attention_mask = qformer_attention_mask_list[text_idx]
 
+            aug_factor = 1
             if args.num_scale > 0:
                 input_x = multi_augmentation(input_x, args.num_scale)
                 repeat_factor = input_x.shape[0]
+                aug_factor = repeat_factor
                 input_ids = input_ids.repeat(repeat_factor, 1)
                 attention_mask = attention_mask.repeat(repeat_factor, 1)
                 labels = labels.repeat(repeat_factor, 1)
@@ -369,6 +371,7 @@ def attack(
                     qformer_input_ids = qformer_input_ids,
                     qformer_attention_mask= qformer_attention_mask
                 )[0]
+            loss = loss * aug_factor
             loss.backward()
             
             grad = noise.grad.detach()
