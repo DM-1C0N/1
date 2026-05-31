@@ -81,7 +81,7 @@ def multi_augmentation(x: torch.Tensor, num_scale: int) -> torch.Tensor:
         return RDI_(img)
 
     def augment_rotation(img: torch.Tensor) -> torch.Tensor:
-        angle = torch.randint(-15, 16, (1,), device=img.device).item()
+        angle = torch.randint(-5, 6, (1,), device=img.device).item()
         return transforms.functional.rotate(
             img,
             angle,
@@ -91,12 +91,9 @@ def multi_augmentation(x: torch.Tensor, num_scale: int) -> torch.Tensor:
     def augment_horizontal_flip(img: torch.Tensor) -> torch.Tensor:
         return torch.flip(img, dims=[-1])
 
-    def augment_vertical_flip(img: torch.Tensor) -> torch.Tensor:
-        return torch.flip(img, dims=[-2])
-
     def augment_translation(img: torch.Tensor) -> torch.Tensor:
-        shift_x = torch.randint(-10, 11, (1,), device=img.device).item()
-        shift_y = torch.randint(-10, 11, (1,), device=img.device).item()
+        shift_x = torch.randint(-3, 4, (1,), device=img.device).item()
+        shift_y = torch.randint(-3, 4, (1,), device=img.device).item()
         return torch.roll(img, shifts=(shift_y, shift_x), dims=(-2, -1))
 
     def _scale_crop(img: torch.Tensor, low: float, high: float) -> torch.Tensor:
@@ -115,15 +112,14 @@ def multi_augmentation(x: torch.Tensor, num_scale: int) -> torch.Tensor:
         return F.pad(scaled, (pad, pad_right, pad, pad_bottom), mode="constant", value=0)
 
     def augment_scale_crop_1(img: torch.Tensor) -> torch.Tensor:
-        return _scale_crop(img, 0.8, 1.0)
+        return _scale_crop(img, 0.95, 1.0)
 
     def augment_scale_crop_2(img: torch.Tensor) -> torch.Tensor:
-        return _scale_crop(img, 1.0, 1.2)
+        return _scale_crop(img, 1.0, 1.05)
 
     augmentation_methods = [
         augment_rotation,
         augment_horizontal_flip,
-        augment_vertical_flip,
         augment_translation,
         augment_scale_crop_1,
         augment_scale_crop_2,
@@ -135,7 +131,7 @@ def multi_augmentation(x: torch.Tensor, num_scale: int) -> torch.Tensor:
 
     for _ in range(num_scale):
         x_aug = flattened_base.clone()
-        for _ in range(2):
+        for _ in range(1):
             aug_method = augmentation_methods[torch.randint(0, len(augmentation_methods), (1,)).item()]
             try:
                 x_aug = aug_method(x_aug)
@@ -309,10 +305,6 @@ def attack(
             context_token_len = context_token_len_list[text_idx]
             input_x = input_x_original.clone().detach()
 
-            if model_name=="open_flamingo":
-                input_x[0,-1] = input_x[0,-1] + noise
-            elif model_name in ["instructblip","blip2"]:
-                input_x = input_x + noise
             labels = labels_list[text_idx]
             input_ids = input_ids_list[text_idx]
             attention_mask = attention_mask_list[text_idx]
@@ -333,6 +325,11 @@ def attack(
                 if model_name == "instructblip":
                     qformer_input_ids = qformer_input_ids.repeat(repeat_factor, 1)
                     qformer_attention_mask = qformer_attention_mask.repeat(repeat_factor, 1)
+
+            if model_name=="open_flamingo":
+                input_x[0,-1] = input_x[0,-1] + noise
+            elif model_name in ["instructblip","blip2"]:
+                input_x = input_x + noise
             
             inputs_embeds_original = lm_emb(input_ids).clone().detach()
             supports_text_perturb = model_name not in ["blip2"]

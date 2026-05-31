@@ -61,7 +61,7 @@ def attack(
     model_name = args.model_name
     method = args.method
     
-    save_perturb_iterations = sorted(set(list(range(600, iters, 100)) + [iters - 1])) if iters > 0 else []
+    save_perturb_iterations = sorted(set(list(range(100, iters, 100)) + [iters - 1])) if iters > 0 else []
     cropa_end = 300
     step = max((cropa_end//prompt_num),1)
     cropa_iter = [i for i in range(step,cropa_end+1, step)] # text perturb update iterations 
