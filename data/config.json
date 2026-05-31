@@ -1,6 +1,6 @@
 {
-    "hf_login_token": "hf_vCO........................",
-    "data_root": "/home/ls/MaQiMing/CroPA_projects/Revisting_CroPA/dataset",
-    "flamingo_checkpoint_path": "/teamspace/studios/this_studio/checkpoint.pt",
-    "eval_batch_size": 1
+  "hf_login_token": "",
+  "data_root": "dataset",
+  "flamingo_checkpoint_path": "",
+  "eval_batch_size": 1
 }
