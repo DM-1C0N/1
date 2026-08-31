@@ -10,6 +10,21 @@ from utils.eval_datasets import  CroPADataset
 from huggingface_hub import login
 
 CONFIG_PATH = "data/config.json"
+LOCAL_CONFIG_PATH = "data/config.local.json"
+
+def resolve_config_path(config_path=None):
+    if config_path:
+        return config_path
+    env_config_path = os.environ.get("CROPA_CONFIG_PATH")
+    if env_config_path:
+        return env_config_path
+    if os.path.exists(LOCAL_CONFIG_PATH):
+        return LOCAL_CONFIG_PATH
+    return CONFIG_PATH
+
+def load_config(config_path=None):
+    with open(resolve_config_path(config_path), 'r') as f:
+        return json.load(f)
 
 # %%
 def seed_everything(seed: int):
@@ -27,9 +42,8 @@ def get_available_gpus(min_memory_available):
     print(f"Using GPUs: {available_gpus[0]} available {available_gpus}")
     return available_gpus
 
-def add_extra_args(args, model_name, config_path = CONFIG_PATH):
-    with open(config_path, 'r') as f:
-        config = json.load(f)
+def add_extra_args(args, model_name, config_path=None):
+    config = load_config(config_path)
         
     if model_name == "open_flamingo":
         args.prompt_num_to_alpha2 = {1:0.01,5:0.0025,10:0.01,50:0.01,100:0.01}
@@ -99,8 +113,7 @@ def find_next_run_dir(output_dir):
 
 #%%
 def get_unique_test_image_ids():
-    with open(CONFIG_PATH, 'r') as f:
-        config = json.load(f)
+    config = load_config()
     with open(f"{config['data_root']}/v2_mscoco_val2014_annotations.json",'r') as f:
         eval_file = json.load(f)
     annos = eval_file["annotations"]
@@ -249,8 +262,7 @@ def load_llava_model(device,module):
     return eval_model
 
 def load_flamingo_model(device,module):
-    with open(CONFIG_PATH, 'r') as f:
-        config = json.load(f)
+    config = load_config()
         
     model_args = {
         'lm_path': 'luodian/llama-7b-hf', 
@@ -276,8 +288,7 @@ def load_idefics_model(device,module):
 
 def load_model(device,module,model_name):
     
-    with open(CONFIG_PATH, 'r') as f:
-        config = json.load(f)
+    config = load_config()
     token = config.get("hf_login_token", "").strip()
     if token and "..." not in token:
         login(token=token)

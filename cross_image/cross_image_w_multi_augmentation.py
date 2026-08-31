@@ -32,7 +32,16 @@ from utils.eval_tools import (
     plot_loss, postprocess_generation,record_format_summary, record_format_summary_affect
 )
 from PIL import Image
-from utils.eval_datasets import AugmentedCroPADataset
+
+def str2bool(value):
+    if isinstance(value, bool):
+        return value
+    value = value.lower()
+    if value in {"true", "1", "yes", "y"}:
+        return True
+    if value in {"false", "0", "no", "n"}:
+        return False
+    raise argparse.ArgumentTypeError("Boolean value expected.")
 
 def multi_augmentation(x: torch.Tensor, num_scale: int) -> torch.Tensor:
     """
@@ -72,7 +81,7 @@ def multi_augmentation(x: torch.Tensor, num_scale: int) -> torch.Tensor:
         return RDI_(img)
 
     def augment_rotation(img: torch.Tensor) -> torch.Tensor:
-        angle = torch.randint(-15, 16, (1,), device=img.device).item()
+        angle = torch.randint(-5, 6, (1,), device=img.device).item()
         return transforms.functional.rotate(
             img,
             angle,
@@ -82,12 +91,9 @@ def multi_augmentation(x: torch.Tensor, num_scale: int) -> torch.Tensor:
     def augment_horizontal_flip(img: torch.Tensor) -> torch.Tensor:
         return torch.flip(img, dims=[-1])
 
-    def augment_vertical_flip(img: torch.Tensor) -> torch.Tensor:
-        return torch.flip(img, dims=[-2])
-
     def augment_translation(img: torch.Tensor) -> torch.Tensor:
-        shift_x = torch.randint(-10, 11, (1,), device=img.device).item()
-        shift_y = torch.randint(-10, 11, (1,), device=img.device).item()
+        shift_x = torch.randint(-3, 4, (1,), device=img.device).item()
+        shift_y = torch.randint(-3, 4, (1,), device=img.device).item()
         return torch.roll(img, shifts=(shift_y, shift_x), dims=(-2, -1))
 
     def _scale_crop(img: torch.Tensor, low: float, high: float) -> torch.Tensor:
@@ -106,15 +112,14 @@ def multi_augmentation(x: torch.Tensor, num_scale: int) -> torch.Tensor:
         return F.pad(scaled, (pad, pad_right, pad, pad_bottom), mode="constant", value=0)
 
     def augment_scale_crop_1(img: torch.Tensor) -> torch.Tensor:
-        return _scale_crop(img, 0.8, 1.0)
+        return _scale_crop(img, 0.95, 1.0)
 
     def augment_scale_crop_2(img: torch.Tensor) -> torch.Tensor:
-        return _scale_crop(img, 1.0, 1.2)
+        return _scale_crop(img, 1.0, 1.05)
 
     augmentation_methods = [
         augment_rotation,
         augment_horizontal_flip,
-        augment_vertical_flip,
         augment_translation,
         augment_scale_crop_1,
         augment_scale_crop_2,
@@ -126,7 +131,7 @@ def multi_augmentation(x: torch.Tensor, num_scale: int) -> torch.Tensor:
 
     for _ in range(num_scale):
         x_aug = flattened_base.clone()
-        for _ in range(2):
+        for _ in range(1):
             aug_method = augmentation_methods[torch.randint(0, len(augmentation_methods), (1,)).item()]
             try:
                 x_aug = aug_method(x_aug)
@@ -300,10 +305,6 @@ def attack(
             context_token_len = context_token_len_list[text_idx]
             input_x = input_x_original.clone().detach()
 
-            if model_name=="open_flamingo":
-                input_x[0,-1] = input_x[0,-1] + noise
-            elif model_name in ["instructblip","blip2"]:
-                input_x = input_x + noise
             labels = labels_list[text_idx]
             input_ids = input_ids_list[text_idx]
             attention_mask = attention_mask_list[text_idx]
@@ -313,15 +314,22 @@ def attack(
                 qformer_input_ids = qformer_input_ids_list[text_idx]
                 qformer_attention_mask = qformer_attention_mask_list[text_idx]
 
+            aug_factor = 1
             if args.num_scale > 0:
                 input_x = multi_augmentation(input_x, args.num_scale)
                 repeat_factor = input_x.shape[0]
+                aug_factor = repeat_factor
                 input_ids = input_ids.repeat(repeat_factor, 1)
                 attention_mask = attention_mask.repeat(repeat_factor, 1)
                 labels = labels.repeat(repeat_factor, 1)
                 if model_name == "instructblip":
                     qformer_input_ids = qformer_input_ids.repeat(repeat_factor, 1)
                     qformer_attention_mask = qformer_attention_mask.repeat(repeat_factor, 1)
+
+            if model_name=="open_flamingo":
+                input_x[0,-1] = input_x[0,-1] + noise
+            elif model_name in ["instructblip","blip2"]:
+                input_x = input_x + noise
             
             inputs_embeds_original = lm_emb(input_ids).clone().detach()
             supports_text_perturb = model_name not in ["blip2"]
@@ -360,6 +368,7 @@ def attack(
                     qformer_input_ids = qformer_input_ids,
                     qformer_attention_mask= qformer_attention_mask
                 )[0]
+            loss = loss * aug_factor
             loss.backward()
             
             grad = noise.grad.detach()
@@ -500,11 +509,11 @@ if __name__=="__main__":
                         help="The number of prompts utilized during the optimization phase")
     parser.add_argument("--device", type=int, default=-1,
                         help="The device id of the GPU to use")
-    parser.add_argument("--iter_num", type=int, default=300,
+    parser.add_argument("--iter_num", "--iters", dest="iter_num", type=int, default=300,
                         help="The num of attack iterations")
     parser.add_argument("--model_name", type=str, default="instructblip", #before: instructblip
                         help="The num of attack iter")
-    parser.add_argument("--quick_eval", type=bool, default=False,
+    parser.add_argument("--quick_eval", type=str2bool, default=False,
                         help="set to false to generate the result given clean images")
     parser.add_argument("--fraction", type=float, default=0.05,
                         help="The fraction of the test dataset to use")
@@ -542,7 +551,7 @@ if __name__=="__main__":
 
     target_text = config_args.target
     iter_num = config_args.iter_num
-    method_dir = f"{config_args.method}_multi_aug_ns_{config_args.num_scale}"
+    method_dir = f"{config_args.method}_w_multi_aug_ns_{config_args.num_scale}"
     
     attack(
         config_args,

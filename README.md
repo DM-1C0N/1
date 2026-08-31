@@ -606,3 +606,21 @@ We thank the authors of Luo *et al.* (2024) for making CroPA’s original code a
 ---
 
 *For any questions or issues, please open an issue on the [GitHub repository](https://github.com/<your-username>/Revisiting-CroPA).*
+
+---
+
+## Cross-Image Augmentation A/B Run
+
+The uploaded cross-image scripts are available under `cross_image/`:
+
+* `cross_image/cross_image_wo_augmentation.py`: baseline cross-image attack without image augmentation.
+* `cross_image/cross_image_w_multi_augmentation.py`: cross-image attack with random multi-augmentation.
+
+Use the same model, target, prompt count, fraction, and iteration count for a fair comparison:
+
+```bash
+./evaluate.sh --algorithm=cross_image_wo_aug --model_name=blip2 --target=unknown --prompt_num=10 --fraction=0.05 --iters=300 --quick_eval=true
+./evaluate.sh --algorithm=cross_image_w_multi_aug --model_name=blip2 --target=unknown --prompt_num=10 --fraction=0.05 --iters=300 --num_scale=4 --quick_eval=true
+```
+
+Compare the generated `summary.json` files under `output/`. For targeted attacks, compare `target_rate`; for untargeted attacks, compare `mean_affect_rate`.

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Default values for parameters
 ALGORITHM=""
@@ -18,6 +19,9 @@ BASE_DIR="./"
 PROMPT_NUM="1"
 TARGET_TEXT_FROM_ARG="" # To store target if passed directly
 PROMPT_FILE="" # To store path to prompt.txt
+NUM_SCALE="4"
+QUICK_EVAL="false"
+PYTHON_BIN="${PYTHON_BIN:-python}"
 
 # Parse command-line arguments
 while [[ "$#" -gt 0 ]]; do
@@ -39,6 +43,8 @@ while [[ "$#" -gt 0 ]]; do
         --prompt_num=*) PROMPT_NUM="${1#*=}" ;;
         --target=*) TARGET_TEXT_FROM_ARG="${1#*=}" ;;
         --prompt_file=*) PROMPT_FILE="${1#*=}" ;;
+        --num_scale=*) NUM_SCALE="${1#*=}" ;;
+        --quick_eval=*) QUICK_EVAL="${1#*=}" ;;
         # For space-separated arguments (e.g., --param value)
         --algorithm) ALGORITHM="$2"; shift ;;
         --model_name) MODEL_NAME="$2"; shift ;;
@@ -57,15 +63,26 @@ while [[ "$#" -gt 0 ]]; do
         --prompt_num) PROMPT_NUM="$2"; shift ;;
         --target) TARGET_TEXT_FROM_ARG="$2"; shift ;;
         --prompt_file) PROMPT_FILE="$2"; shift ;;
+        --num_scale) NUM_SCALE="$2"; shift ;;
+        --quick_eval) QUICK_EVAL="$2"; shift ;;
         *) echo "Unknown parameter passed: $1"; exit 1 ;;
     esac
     shift
 done
 
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="python3"
+    else
+        echo "Error: neither '$PYTHON_BIN' nor 'python3' was found."
+        exit 1
+    fi
+fi
+
 # Validate algorithm choice
 if [[ -z "$ALGORITHM" ]]; then
     echo "Error: --algorithm parameter is required."
-    echo "Usage: ./run_algorithm.sh --algorithm=<cropa|duap|init> [--prompt_file=/path/to/prompt.txt | --target=\"your_target_text\"] [other_parameters...]"
+    echo "Usage: ./evaluate.sh --algorithm=<cropa|duap|init|cross_image_wo_aug|cross_image_w_multi_aug> [--prompt_file=/path/to/prompt.txt | --target=\"your_target_text\"] [other_parameters...]"
     exit 1
 fi
 
@@ -89,9 +106,19 @@ case "$ALGORITHM" in
         METHOD_PARAM="cropa"
         DEFAULT_TARGET_TEXT="bomb"
         ;;
+    "cross_image_wo_aug")
+        PYTHON_SCRIPT="cross_image/cross_image_wo_augmentation.py"
+        METHOD_PARAM="cropa"
+        DEFAULT_TARGET_TEXT="unknown"
+        ;;
+    "cross_image_w_multi_aug")
+        PYTHON_SCRIPT="cross_image/cross_image_w_multi_augmentation.py"
+        METHOD_PARAM="cropa"
+        DEFAULT_TARGET_TEXT="unknown"
+        ;;
     *)
         echo "Invalid algorithm selected: $ALGORITHM"
-        echo "Supported algorithms are: cropa, duap, init"
+        echo "Supported algorithms are: cropa, duap, init, cross_image_wo_aug, cross_image_w_multi_aug"
         exit 1
         ;;
 esac
@@ -136,8 +163,10 @@ echo "  Epsilon: $EPSILON"
 echo "  Iters: $ITERS"
 echo "  Alpha2: $ALPHA2"
 echo "  Fraction: $FRACTION"
+echo "  Quick Eval: $QUICK_EVAL"
 echo "  Base Directory: $BASE_DIR"
 echo "  Prompt Num: $PROMPT_NUM"
+echo "  Num Scale: $NUM_SCALE"
 echo "  Method Parameter: $METHOD_PARAM"
 
 
@@ -147,23 +176,30 @@ for CURRENT_TARGET_TEXT in "${TARGET_TEXTS[@]}"; do
     echo "Executing with Target Text: $CURRENT_TARGET_TEXT"
     echo "--------------------------------------------------------"
 
-    python "$PYTHON_SCRIPT" \
+    EXTRA_ARGS=()
+    if [[ "$ALGORITHM" == "cross_image_w_multi_aug" ]]; then
+        EXTRA_ARGS+=(--num_scale "$NUM_SCALE")
+    fi
+
+    "$PYTHON_BIN" "$PYTHON_SCRIPT" \
         --model_name "$MODEL_NAME" \
         --vqav2_eval_annotations_json_path "$VQAV2_EVAL_ANNOTATIONS_JSON_PATH" \
         --device "$DEVICE" \
         --max_generation_length "$MAX_GENERATION_LENGTH" \
         --num_beams "$NUM_BEAMS" \
         --length_penalty "$LENGTH_PENALTY" \
-        --num_shots "$NUM_SHOTS" \
+        --shot "$NUM_SHOTS" \
         --alpha1 "$ALPHA1" \
         --epsilon "$EPSILON" \
-        --iters "$ITERS" \
+        --iter_num "$ITERS" \
         --alpha2 "$ALPHA2" \
         --fraction "$FRACTION" \
+        --quick_eval "$QUICK_EVAL" \
         --base_dir "$BASE_DIR" \
         --prompt_num "$PROMPT_NUM" \
         --target "$CURRENT_TARGET_TEXT" \
-        --method "$METHOD_PARAM"
+        --method "$METHOD_PARAM" \
+        "${EXTRA_ARGS[@]}"
 done
 
 echo "Script execution complete for all specified target texts."

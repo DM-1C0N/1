@@ -3,15 +3,9 @@ import sys
 import os
 
 # Ensure the repo root is in sys.path
-repo_root = os.path.dirname(os.path.abspath(__file__))
+repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if repo_root not in sys.path:
     sys.path.insert(0, repo_root)
-
-# Import your custom transformers module (renamed to transformers_cropa)
-import transformers_cropa
-
-# Alias 'transformers' to point to 'transformers_cropa'
-sys.modules["transformers"] = transformers_cropa
 
 import argparse
 import importlib
@@ -36,7 +30,16 @@ from utils.eval_tools import (
     plot_loss, postprocess_generation,record_format_summary, record_format_summary_affect
 )
 from PIL import Image
-from utils.eval_datasets import AugmentedCroPADataset
+
+def str2bool(value):
+    if isinstance(value, bool):
+        return value
+    value = value.lower()
+    if value in {"true", "1", "yes", "y"}:
+        return True
+    if value in {"false", "0", "no", "n"}:
+        return False
+    raise argparse.ArgumentTypeError("Boolean value expected.")
 
 def attack(
     args: argparse.Namespace,
@@ -58,7 +61,7 @@ def attack(
     model_name = args.model_name
     method = args.method
     
-    save_perturb_iterations = list(range(600, iters, 100)) 
+    save_perturb_iterations = sorted(set(list(range(100, iters, 100)) + [iters - 1])) if iters > 0 else []
     cropa_end = 300
     step = max((cropa_end//prompt_num),1)
     cropa_iter = [i for i in range(step,cropa_end+1, step)] # text perturb update iterations 
@@ -106,8 +109,6 @@ def attack(
     else:
         noise = torch.randn([1,1,3,224,224],requires_grad=True,device = device)
         lm_emb = eval_model.model.lang_encoder.get_input_embeddings()
-    #aug_test_set = AugmentedCroPADataset(test_dataset)
-    
     for ep in tqdm(range(iters), desc = "Epoch"):
         for id, item in enumerate(test_dataset):
             img_id = str(ques_id_to_img_id[item["question_id"]])
@@ -207,12 +208,22 @@ def attack(
             labels = labels_list[text_idx]
             input_ids = input_ids_list[text_idx]
             attention_mask = attention_mask_list[text_idx]
+            qformer_input_ids = None
+            qformer_attention_mask = None
+            if model_name == "instructblip":
+                qformer_input_ids = qformer_input_ids_list[text_idx]
+                qformer_attention_mask = qformer_attention_mask_list[text_idx]
             
             inputs_embeds_original = lm_emb(input_ids).clone().detach()
-            text_perturb = torch.tensor(perturb_list[text_idx],requires_grad=True,device=device)
+            supports_text_perturb = model_name not in ["blip2"]
+            text_perturb = (
+                torch.tensor(perturb_list[text_idx], requires_grad=True, device=device)
+                if supports_text_perturb
+                else None
+            )
             
-            inputs_embeds = inputs_embeds_original + text_perturb
-            if method == "baseline":
+            inputs_embeds = inputs_embeds_original + text_perturb if text_perturb is not None else None
+            if method == "baseline" or not supports_text_perturb:
                 inputs_embeds = None
             if model_name=="open_flamingo":
                 loss = eval_model.model(  
@@ -224,12 +235,10 @@ def attack(
                 )[0]
             elif model_name=="blip2":
                 loss = eval_model.model(  
-                    inputs_embeds=inputs_embeds,
                     input_ids=input_ids,
                     pixel_values=input_x,                
                     attention_mask=attention_mask,
-                    labels=labels,
-                    normalize_vision_input = True
+                    labels=labels
                 )[0]
             elif model_name=="instructblip":
                 loss = eval_model.model(  
@@ -239,13 +248,13 @@ def attack(
                     attention_mask=attention_mask,
                     labels=labels,
                     normalize_vision_input = True,
-                    qformer_input_ids = qformer_input_ids_list[text_idx],
-                    qformer_attention_mask= qformer_attention_mask_list[text_idx]
+                    qformer_input_ids = qformer_input_ids,
+                    qformer_attention_mask= qformer_attention_mask
                 )[0]
             loss.backward()
             
             grad = noise.grad.detach()
-            if method!="baseline":
+            if method!="baseline" and text_perturb is not None and text_perturb.grad is not None:
                 text_grad = text_perturb.grad.detach()
                 mask = torch.ones_like(inputs_embeds)
                 mask[:,:context_token_len] = 0
@@ -253,16 +262,16 @@ def attack(
             
             if not target.startswith("no target"):
                 d = torch.clamp(noise - alpha1 * torch.sign(grad), min=-epsilon, max=epsilon)                
-                if method=="cropa" and ep in cropa_iter:
+                if method=="cropa" and ep in cropa_iter and text_perturb is not None:
                     text_perturb.data = torch.clamp(text_perturb+ mask*torch.sign(text_grad)*alpha2,min = -0.23,max = 0.27)                    
             else: 
                 d = torch.clamp(noise + alpha1 * torch.sign(grad), min=-epsilon, max=epsilon)
-                if method=="cropa" and ep in cropa_iter :
+                if method=="cropa" and ep in cropa_iter and text_perturb is not None:
                     text_perturb.data = torch.clamp(text_perturb - mask*torch.sign(text_grad)*alpha2,min = -0.23,max = 0.27)                    
             noise.data = d
             noise.grad.zero_()
 
-            if method!="baseline":
+            if method!="baseline" and text_perturb is not None and text_perturb.grad is not None:
                 text_perturb.grad.zero_()
                 perturb_list[text_idx] = text_perturb.clone().detach().cpu()
             perturb_list_dict[img_id] = perturb_list
@@ -382,11 +391,11 @@ if __name__=="__main__":
                         help="The number of prompts utilized during the optimization phase")
     parser.add_argument("--device", type=int, default=-1,
                         help="The device id of the GPU to use")
-    parser.add_argument("--iter_num", type=int, default=300,
+    parser.add_argument("--iter_num", "--iters", dest="iter_num", type=int, default=300,
                         help="The num of attack iterations")
     parser.add_argument("--model_name", type=str, default="instructblip", #before: instructblip
                         help="The num of attack iter")
-    parser.add_argument("--quick_eval", type=bool, default=False,
+    parser.add_argument("--quick_eval", type=str2bool, default=False,
                         help="set to false to generate the result given clean images")
     parser.add_argument("--fraction", type=float, default=0.05,
                         help="The fraction of the test dataset to use")
@@ -394,6 +403,8 @@ if __name__=="__main__":
                         help="The num of in context learning examples to use, specific for Flamingo")
     parser.add_argument("--method", type=str, default="cropa",
                         help="The mehod of attack, either cropa or baseline")
+    parser.add_argument("--target", type=str, default="unknown",
+                        help="Target text to induce during the attack")
     config_args = parser.parse_known_args()[0]
     assert config_args.method in ["cropa","baseline"], "method not supported"
     add_extra_args(config_args, config_args.model_name)
@@ -418,8 +429,9 @@ if __name__=="__main__":
         prompt_num_to_alpha2 = config_args.prompt_num_to_alpha2    
         alpha2 = prompt_num_to_alpha2[prompt_num]
 
-    target_text = "unknown"
-    iter_num = 1701
+    target_text = config_args.target
+    iter_num = config_args.iter_num
+    method_dir = f"{config_args.method}_wo_aug"
     
     attack(
         config_args,
@@ -433,7 +445,7 @@ if __name__=="__main__":
         fraction=config_args.fraction,
         iters = iter_num,
         target = target_text+config_args.eoc,
-        base_dir = f"output/{config_args.model_name}_shots_{num_shots}/{config_args.method}/num_{prompt_num}_{target_text}",
+        base_dir = f"output/{config_args.model_name}_shots_{num_shots}/{method_dir}/num_{prompt_num}_{target_text}",
         alpha2 = alpha2 ,
         prompt_num=config_args.prompt_num,
         datasets=(train_dataset,  test_dataset),
